@@ -12,7 +12,6 @@ Parameters:
     Description: Deployment environment
 
 # ── Globals ───────────────────────────────────────────────────────────────────
-# Defaults applied to every AWS::Serverless::Function unless overridden
 
 Globals:
   Function:
@@ -20,13 +19,16 @@ Globals:
     Timeout: 15
     MemorySize: 256
     Architectures: [x86_64]
+    CodeUri: ./
     Environment:
       Variables:
         NODE_ENV: !Ref Environment
 
-# ── Shared Infrastructure (Nested Stacks) ─────────────────────────────────────
+# ── Resources ─────────────────────────────────────────────────────────────────
 
 Resources:
+
+  # ── Shared Infrastructure ────────────────────────────────────────────────────
 
   CognitoStack:
     Type: AWS::CloudFormation::Stack
@@ -49,8 +51,6 @@ Resources:
       Parameters:
         Environment: !Ref Environment
 
-# ── Sharp Lambda Layer ─────────────────────────────────────────────────────────
-
   SharpLayerStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -58,7 +58,7 @@ Resources:
       Parameters:
         Environment: !Ref Environment
 
-# ── Shared HTTP API Gateway ───────────────────────────────────────────────────
+  # ── Shared HTTP API ──────────────────────────────────────────────────────────
 
   Api:
     Type: AWS::Serverless::HttpApi
@@ -78,202 +78,466 @@ Resources:
                 - !GetAtt CognitoStack.Outputs.StoreClientId
             IdentitySource: $request.header.Authorization
       CorsConfiguration:
-        AllowOrigins:
-          - '*'
-        AllowMethods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - OPTIONS
-        AllowHeaders:
-          - Authorization
-          - Content-Type
+        AllowOrigins: ['*']
+        AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
+        AllowHeaders: [Authorization, Content-Type]
         MaxAge: 300
 
-# ── Lambda Nested Stacks ──────────────────────────────────────────────────────
-# Each Lambda registers its own route via the Events.Api property.
-# All stacks receive the shared parameters they need.
+  # ── Auth ─────────────────────────────────────────────────────────────────────
 
-  AuthPostConfirmStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  AuthPostConfirmFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/auth-post-confirm/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
+      FunctionName: !Sub "ammas-auth-post-confirm-${Environment}"
+      Handler: lambdas/auth-post-confirm/index.handler
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/auth-post-confirm/index.js]
 
-  AdminCreateClientStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  # ── Admin: Clients ───────────────────────────────────────────────────────────
+
+  AdminCreateClientFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/admin-create-client/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-admin-create-client-${Environment}"
+      Handler: lambdas/admin-create-client/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+          USER_POOL_ID: !GetAtt CognitoStack.Outputs.UserPoolId
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/clients
+            Method: POST
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+        - Statement:
+            - Effect: Allow
+              Action: [cognito-idp:AdminCreateUser, cognito-idp:AdminAddUserToGroup]
+              Resource: !Sub
+                - "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+                - UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/admin-create-client/index.js]
 
-  AdminListClientsStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  AdminListClientsFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/admin-list-clients/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-admin-list-clients-${Environment}"
+      Handler: lambdas/admin-list-clients/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/clients
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/admin-list-clients/index.js]
 
-  AdminUpdateClientStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  AdminUpdateClientFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/admin-update-client/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-admin-update-client-${Environment}"
+      Handler: lambdas/admin-update-client/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/clients/{clientId}
+            Method: PUT
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/admin-update-client/index.js]
 
-  AdminDeleteClientStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  AdminDeleteClientFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/admin-delete-client/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-admin-delete-client-${Environment}"
+      Handler: lambdas/admin-delete-client/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/clients/{clientId}
+            Method: DELETE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/admin-delete-client/index.js]
 
-  BranchesCreateStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  # ── Branches ─────────────────────────────────────────────────────────────────
+
+  BranchesCreateFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/branches-create/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-branches-create-${Environment}"
+      Handler: lambdas/branches-create/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+          USER_POOL_ID: !GetAtt CognitoStack.Outputs.UserPoolId
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches
+            Method: POST
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+        - Statement:
+            - Effect: Allow
+              Action: [cognito-idp:AdminCreateUser, cognito-idp:AdminAddUserToGroup]
+              Resource: !Sub
+                - "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+                - UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/branches-create/index.js]
 
-  BranchesListStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  BranchesListFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/branches-list/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-branches-list-${Environment}"
+      Handler: lambdas/branches-list/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/branches-list/index.js]
 
-  BranchesUpdateStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  BranchesUpdateFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/branches-update/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-branches-update-${Environment}"
+      Handler: lambdas/branches-update/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches/{branchId}
+            Method: PUT
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/branches-update/index.js]
 
-  MediaListStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  # ── Media ─────────────────────────────────────────────────────────────────────
+
+  MediaListFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/media-list/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-media-list-${Environment}"
+      Handler: lambdas/media-list/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches/{branchId}/media
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-list/index.js]
 
-  MediaUploadUrlStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack, StorageStack]
+  MediaUploadUrlFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/media-upload-url/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
-        MediaBucket: !GetAtt StorageStack.Outputs.MediaBucketName
+      FunctionName: !Sub "ammas-media-upload-url-${Environment}"
+      Handler: lambdas/media-upload-url/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+          MEDIA_BUCKET: !GetAtt StorageStack.Outputs.MediaBucketName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches/{branchId}/media/upload-url
+            Method: POST
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+        - S3WritePolicy:
+            BucketName: !GetAtt StorageStack.Outputs.MediaBucketName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-upload-url/index.js]
 
-  MediaDeleteStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack, StorageStack]
+  MediaDeleteFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/media-delete/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
-        MediaBucket: !GetAtt StorageStack.Outputs.MediaBucketName
+      FunctionName: !Sub "ammas-media-delete-${Environment}"
+      Handler: lambdas/media-delete/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+          MEDIA_BUCKET: !GetAtt StorageStack.Outputs.MediaBucketName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches/{branchId}/media/{mediaId}
+            Method: DELETE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+        - S3CrudPolicy:
+            BucketName: !GetAtt StorageStack.Outputs.MediaBucketName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-delete/index.js]
 
-  MediaReorderStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  MediaReorderFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/media-reorder/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-media-reorder-${Environment}"
+      Handler: lambdas/media-reorder/index.handler
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /clients/{clientId}/branches/{branchId}/media/reorder
+            Method: PUT
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-reorder/index.js]
 
-  MediaProcessorStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [DatabaseStack, StorageStack, SharpLayerStack]
+  MediaProcessorFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/media-processor/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        MediaBucket: !GetAtt StorageStack.Outputs.MediaBucketName
-        CdnDomain: !GetAtt StorageStack.Outputs.MediaCdnDomain
-        SharpLayerArn: !GetAtt SharpLayerStack.Outputs.LayerArn
+      FunctionName: !Sub "ammas-media-processor-${Environment}"
+      Handler: lambdas/media-processor/index.handler
+      Timeout: 30
+      MemorySize: 512
+      Layers:
+        - !GetAtt SharpLayerStack.Outputs.LayerArn
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+          MEDIA_BUCKET: !GetAtt StorageStack.Outputs.MediaBucketName
+          CDN_DOMAIN: !GetAtt StorageStack.Outputs.MediaCdnDomain
+      Events:
+        S3Jpg:
+          Type: S3
+          Properties:
+            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - { Name: prefix, Value: clients/ }
+                  - { Name: suffix, Value: .jpg }
+        S3Jpeg:
+          Type: S3
+          Properties:
+            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - { Name: prefix, Value: clients/ }
+                  - { Name: suffix, Value: .jpeg }
+        S3Png:
+          Type: S3
+          Properties:
+            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - { Name: prefix, Value: clients/ }
+                  - { Name: suffix, Value: .png }
+        S3Webp:
+          Type: S3
+          Properties:
+            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - { Name: prefix, Value: clients/ }
+                  - { Name: suffix, Value: .webp }
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+        - S3CrudPolicy:
+            BucketName: !GetAtt StorageStack.Outputs.MediaBucketName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-processor/index.js]
+        External: [sharp]
 
-  DisplayGetCarouselStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [CognitoStack, DatabaseStack]
+  # ── Display (TV) ─────────────────────────────────────────────────────────────
+
+  DisplayGetCarouselFn:
+    Type: AWS::Serverless::Function
     Properties:
-      TemplateURL: lambdas/display-get-carousel/template.yaml
-      Parameters:
-        Environment: !Ref Environment
-        HttpApiId: !Ref Api
-        MainTableName: !GetAtt DatabaseStack.Outputs.MainTableName
-        EventsTableName: !GetAtt DatabaseStack.Outputs.EventsTableName
-        UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+      FunctionName: !Sub "ammas-display-get-carousel-${Environment}"
+      Handler: lambdas/display-get-carousel/index.handler
+      Timeout: 10
+      Environment:
+        Variables:
+          MAIN_TABLE: !GetAtt DatabaseStack.Outputs.MainTableName
+          EVENTS_TABLE: !GetAtt DatabaseStack.Outputs.EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /display/{branchId}/carousel
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !GetAtt DatabaseStack.Outputs.MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/display-get-carousel/index.js]
 
-# ── Wire Cognito PostConfirmation trigger ─────────────────────────────────────
-# The trigger must be set on the User Pool after the Lambda exists.
+  # ── Cognito PostConfirmation trigger ─────────────────────────────────────────
 
   CognitoPostConfirmTrigger:
     Type: AWS::Cognito::UserPoolLambdaConfig
-    DependsOn: [CognitoStack, AuthPostConfirmStack]
     Properties:
       UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
       LambdaConfig:
-        PostConfirmation: !GetAtt AuthPostConfirmStack.Outputs.FunctionArn
+        PostConfirmation: !GetAtt AuthPostConfirmFn.Arn
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 
