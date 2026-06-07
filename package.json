@@ -7,6 +7,9 @@
     "deploy:staging": "sam deploy --stack-name ammas-banner-staging --region ap-south-1 --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --parameter-overrides Environment=staging --resolve-s3 --no-confirm-changeset",
     "deploy:prod": "sam deploy --stack-name ammas-banner-production --region ap-south-1 --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --parameter-overrides Environment=production --resolve-s3 --confirm-changeset"
   },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  },
   "dependencies": {
     "@ammas/auth": "file:packages/@ammas/auth",
     "@ammas/db": "file:packages/@ammas/db",
