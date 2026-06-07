@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: POST /clients/{clientId}/branches/{branchId}/media/upload-url — presigned S3 PUT URL
+
+Parameters:
+  Environment:    { Type: String }
+  HttpApiId:      { Type: String }
+  MainTableName:  { Type: String }
+  EventsTableName: { Type: String }
+  UserPoolId:     { Type: String }
+  MediaBucket:    { Type: String }
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ammas-media-upload-url-${Environment}"
+      Handler: lambdas/media-upload-url/index.handler
+      Runtime: nodejs20.x
+      CodeUri: ./
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          MAIN_TABLE: !Ref MainTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          MEDIA_BUCKET: !Ref MediaBucket
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApiId
+            Path: /clients/{clientId}/branches/{branchId}/media/upload-url
+            Method: POST
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MainTableName
+        - S3WritePolicy:
+            BucketName: !Ref MediaBucket
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-upload-url/index.js]
+
+Outputs:
+  FunctionArn:  { Value: !GetAtt Function.Arn }
+  FunctionName: { Value: !Ref Function }

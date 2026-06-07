@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Amplify App shell for ammas-banner React frontend.
+  The frontend code (packages/frontend/) will be added later.
+  Deploy this stack once to create the Amplify App resource,
+  then connect your Bitbucket repo in the AWS Console.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [staging, production]
+  # Fill these in after deploying the main stack
+  ApiUrl:
+    Type: String
+    Default: ''
+  UserPoolId:
+    Type: String
+    Default: ''
+  AdminClientId:
+    Type: String
+    Default: ''
+  StoreClientId:
+    Type: String
+    Default: ''
+  CdnDomain:
+    Type: String
+    Default: ''
+
+Resources:
+
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub "ammas-banner-${Environment}"
+      Description: ammas-banner React frontend
+      Platform: WEB
+      # BuildSpec will be updated when frontend code is added
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - npm install -g pnpm
+                - pnpm install --frozen-lockfile
+            build:
+              commands:
+                - pnpm --filter frontend build
+          artifacts:
+            baseDirectory: packages/frontend/dist
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - node_modules/**/*
+      EnvironmentVariables:
+        - Name: VITE_API_URL
+          Value: !Ref ApiUrl
+        - Name: VITE_USER_POOL_ID
+          Value: !Ref UserPoolId
+        - Name: VITE_ADMIN_CLIENT_ID
+          Value: !Ref AdminClientId
+        - Name: VITE_STORE_CLIENT_ID
+          Value: !Ref StoreClientId
+        - Name: VITE_CDN_DOMAIN
+          Value: !Ref CdnDomain
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: !If [IsProd, main, staging]
+      Stage: !If [IsProd, PRODUCTION, DEVELOPMENT]
+      EnableAutoBuild: true
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, production]
+
+Outputs:
+  AmplifyAppId:
+    Value: !GetAtt AmplifyApp.AppId
+  AmplifyDefaultDomain:
+    Value: !GetAtt AmplifyApp.DefaultDomain

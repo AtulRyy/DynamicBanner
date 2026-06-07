@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Cognito PostConfirmation trigger — writes user record to DynamoDB
+
+Parameters:
+  Environment:
+    Type: String
+  MainTableName:
+    Type: String
+  EventsTableName:
+    Type: String
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ammas-auth-post-confirm-${Environment}"
+      Handler: lambdas/auth-post-confirm/index.handler
+      Runtime: nodejs20.x
+      CodeUri: ./
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          MAIN_TABLE: !Ref MainTableName
+          EVENTS_TABLE: !Ref EventsTableName
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints:
+          - src/index.ts
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+  FunctionName:
+    Value: !Ref Function

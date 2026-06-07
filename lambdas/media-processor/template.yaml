@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: S3 ObjectCreated trigger — generates thumbnails via Sharp layer and writes DDB record
+
+Parameters:
+  Environment:    { Type: String }
+  MainTableName:  { Type: String }
+  EventsTableName: { Type: String }
+  MediaBucket:    { Type: String }
+  CdnDomain:      { Type: String }
+  SharpLayerArn:  { Type: String }
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ammas-media-processor-${Environment}"
+      Handler: lambdas/media-processor/index.handler
+      Runtime: nodejs20.x
+      CodeUri: ./
+      Timeout: 30
+      MemorySize: 512
+      Layers:
+        - !Ref SharpLayerArn
+      Environment:
+        Variables:
+          MAIN_TABLE: !Ref MainTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          MEDIA_BUCKET: !Ref MediaBucket
+          CDN_DOMAIN: !Ref CdnDomain
+      Events:
+        S3Upload:
+          Type: S3
+          Properties:
+            Bucket: !Ref MediaBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: clients/
+                  - Name: suffix
+                    Value: .jpg
+        S3UploadJpeg:
+          Type: S3
+          Properties:
+            Bucket: !Ref MediaBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: clients/
+                  - Name: suffix
+                    Value: .jpeg
+        S3UploadPng:
+          Type: S3
+          Properties:
+            Bucket: !Ref MediaBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: clients/
+                  - Name: suffix
+                    Value: .png
+        S3UploadWebp:
+          Type: S3
+          Properties:
+            Bucket: !Ref MediaBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: clients/
+                  - Name: suffix
+                    Value: .webp
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MainTableName
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/media-processor/index.js]
+        # sharp is excluded — provided by Lambda Layer
+        External:
+          - sharp
+
+Outputs:
+  FunctionArn:  { Value: !GetAtt Function.Arn }
+  FunctionName: { Value: !Ref Function }

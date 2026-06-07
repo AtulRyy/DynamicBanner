@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DynamoDB tables for ammas-banner
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [staging, production]
+
+Resources:
+
+  MainTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "ammas-main-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - { AttributeName: PK,          AttributeType: S }
+        - { AttributeName: SK,          AttributeType: S }
+        - { AttributeName: entityType,  AttributeType: S }
+        - { AttributeName: createdAt,   AttributeType: S }
+        - { AttributeName: cognitoSub,  AttributeType: S }
+        - { AttributeName: email,       AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        # List all entities of a type (e.g. all CLIENTs)
+        - IndexName: GSI-EntityType
+          KeySchema:
+            - { AttributeName: entityType, KeyType: HASH }
+            - { AttributeName: createdAt,  KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        # Resolve Cognito sub → user record (used in every Lambda auth guard)
+        - IndexName: GSI-UserByCognito
+          KeySchema:
+            - { AttributeName: cognitoSub, KeyType: HASH }
+          Projection: { ProjectionType: ALL }
+        # Look up user by email (admin operations)
+        - IndexName: GSI-UserByEmail
+          KeySchema:
+            - { AttributeName: email, KeyType: HASH }
+          Projection: { ProjectionType: ALL }
+
+  # Audit / event log with 30-day TTL
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TableName: !Sub "ammas-events-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+
+Outputs:
+  MainTableName:
+    Value: !Ref MainTable
+    Export: { Name: !Sub "ammas-MainTableName-${Environment}" }
+  MainTableArn:
+    Value: !GetAtt MainTable.Arn
+    Export: { Name: !Sub "ammas-MainTableArn-${Environment}" }
+  EventsTableName:
+    Value: !Ref EventsTable
+    Export: { Name: !Sub "ammas-EventsTableName-${Environment}" }

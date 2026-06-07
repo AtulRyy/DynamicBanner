@@ -1,0 +1,21 @@
+{
+  "name": "ammas-banner",
+  "private": true,
+  "scripts": {
+    "install:sharp-layer": "cd layers/sharp && bash build.sh",
+    "build": "sam build",
+    "deploy:staging": "sam deploy --stack-name ammas-banner-staging --region ap-south-1 --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --parameter-overrides Environment=staging --resolve-s3 --no-confirm-changeset",
+    "deploy:prod": "sam deploy --stack-name ammas-banner-production --region ap-south-1 --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --parameter-overrides Environment=production --resolve-s3 --confirm-changeset"
+  },
+  "dependencies": {
+    "@ammas/auth": "workspace:*",
+    "@ammas/db": "workspace:*",
+    "@ammas/response": "workspace:*",
+    "@aws-sdk/client-cognito-identity-provider": "^3.600.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "uuid": "^9.0.1"
+  }
+}

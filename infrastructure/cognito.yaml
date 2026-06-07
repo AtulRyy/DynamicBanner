@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cognito User Pool, Groups, and App Clients for ammas-banner
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [staging, production]
+
+Resources:
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "ammas-banner-${Environment}"
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Schema:
+        - Name: clientId
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: branchId
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+
+  # ── Groups ────────────────────────────────────────────────────────────────────
+
+  SuperAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: SUPER_ADMIN
+      Description: Platform super administrators
+      UserPoolId: !Ref UserPool
+
+  ClientAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: CLIENT_ADMIN
+      Description: Client tenant administrators
+      UserPoolId: !Ref UserPool
+
+  StoreGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: STORE
+      Description: Store display kiosk accounts
+      UserPoolId: !Ref UserPool
+
+  # ── App Clients ───────────────────────────────────────────────────────────────
+
+  AdminAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "ammas-admin-${Environment}"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 60       # minutes
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30      # days
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  StoreAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "ammas-store-${Environment}"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 365     # TVs need long refresh windows
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, production]
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+    Export: { Name: !Sub "ammas-UserPoolId-${Environment}" }
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+    Export: { Name: !Sub "ammas-UserPoolArn-${Environment}" }
+  AdminClientId:
+    Value: !Ref AdminAppClient
+    Export: { Name: !Sub "ammas-AdminClientId-${Environment}" }
+  StoreClientId:
+    Value: !Ref StoreAppClient
+    Export: { Name: !Sub "ammas-StoreClientId-${Environment}" }

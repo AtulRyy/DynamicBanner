@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 media bucket and CloudFront distribution for ammas-banner
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [staging, production]
+
+Resources:
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "ammas-media-${AWS::AccountId}-${Environment}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [PUT]
+            AllowedOrigins: ['*']
+            AllowedHeaders: ['*', 'Content-Type']
+            MaxAge: 300
+
+  # OAC — Origin Access Control (replaces legacy OAI)
+  MediaCdnOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "ammas-media-oac-${Environment}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  MediaCdn:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "ammas-banner media CDN (${Environment})"
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: MediaBucketOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6   # CachingOptimized managed policy
+        Origins:
+          - Id: MediaBucketOrigin
+            DomainName: !GetAtt MediaBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !GetAtt MediaCdnOAC.Id
+
+  # Bucket policy: allow only CloudFront OAC to read
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${MediaBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${MediaCdn}"
+
+Outputs:
+  MediaBucketName:
+    Value: !Ref MediaBucket
+    Export: { Name: !Sub "ammas-MediaBucketName-${Environment}" }
+  MediaBucketArn:
+    Value: !GetAtt MediaBucket.Arn
+    Export: { Name: !Sub "ammas-MediaBucketArn-${Environment}" }
+  MediaCdnDomain:
+    Value: !GetAtt MediaCdn.DomainName
+    Export: { Name: !Sub "ammas-MediaCdnDomain-${Environment}" }
+  MediaCdnId:
+    Value: !Ref MediaCdn
+    Export: { Name: !Sub "ammas-MediaCdnId-${Environment}" }

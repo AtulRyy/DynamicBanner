@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: POST /admin/clients — Super Admin creates a new client tenant
+
+Parameters:
+  Environment:    { Type: String }
+  HttpApiId:      { Type: String }
+  MainTableName:  { Type: String }
+  EventsTableName: { Type: String }
+  UserPoolId:     { Type: String }
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ammas-admin-create-client-${Environment}"
+      Handler: lambdas/admin-create-client/index.handler
+      Runtime: nodejs20.x
+      CodeUri: ./
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          MAIN_TABLE: !Ref MainTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          USER_POOL_ID: !Ref UserPoolId
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApiId
+            Path: /admin/clients
+            Method: POST
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MainTableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminCreateUser
+                - cognito-idp:AdminAddUserToGroup
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/admin-create-client/index.js]
+
+Outputs:
+  FunctionArn:  { Value: !GetAtt Function.Arn }
+  FunctionName: { Value: !Ref Function }

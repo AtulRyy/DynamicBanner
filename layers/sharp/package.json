@@ -1,0 +1,8 @@
+{
+  "name": "sharp-layer",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "sharp": "^0.33.4"
+  }
+}

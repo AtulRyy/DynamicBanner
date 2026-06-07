@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Sharp image processing Lambda Layer (Linux x64)
+
+Parameters:
+  Environment: { Type: String }
+
+Resources:
+  SharpLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "ammas-sharp-${Environment}"
+      Description: Sharp v0.33 compiled for Linux x64
+      ContentUri: ./
+      CompatibleRuntimes:
+        - nodejs20.x
+      CompatibleArchitectures:
+        - x86_64
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: nodejs20.x
+      BuildArchitecture: x86_64
+
+Outputs:
+  LayerArn:
+    Value: !Ref SharpLayer
+    Description: ARN of the Sharp Lambda Layer

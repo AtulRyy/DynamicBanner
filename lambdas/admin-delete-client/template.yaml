@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: DELETE /admin/clients/{clientId} — soft-delete a client tenant
+
+Parameters:
+  Environment:    { Type: String }
+  HttpApiId:      { Type: String }
+  MainTableName:  { Type: String }
+  EventsTableName: { Type: String }
+  UserPoolId:     { Type: String }
+
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ammas-admin-delete-client-${Environment}"
+      Handler: lambdas/admin-delete-client/index.handler
+      Runtime: nodejs20.x
+      CodeUri: ./
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          MAIN_TABLE: !Ref MainTableName
+          EVENTS_TABLE: !Ref EventsTableName
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApiId
+            Path: /admin/clients/{clientId}
+            Method: DELETE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MainTableName
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints: [lambdas/admin-delete-client/index.js]
+
+Outputs:
+  FunctionArn:  { Value: !GetAtt Function.Arn }
+  FunctionName: { Value: !Ref Function }

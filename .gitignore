@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+cdk.out/
+*.js.map
+*.d.ts
+.DS_Store
+coverage/
