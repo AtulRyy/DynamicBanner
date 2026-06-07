@@ -5,6 +5,9 @@ Parameters:
   Environment:
     Type: String
     AllowedValues: [staging, production]
+  PostConfirmationArn:
+    Type: String
+    Description: ARN of the Lambda function to invoke after Cognito user confirmation
 
 Resources:
 
@@ -41,6 +44,16 @@ Resources:
           Mutable: true
           Required: false
       DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+      LambdaConfig:
+        PostConfirmation: !Ref PostConfirmationArn
+
+  PostConfirmationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PostConfirmationArn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
 
   # ── Groups ────────────────────────────────────────────────────────────────────
 

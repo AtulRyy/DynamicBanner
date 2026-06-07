@@ -36,6 +36,7 @@ Resources:
       TemplateURL: infrastructure/cognito.yaml
       Parameters:
         Environment: !Ref Environment
+        PostConfirmationArn: !GetAtt AuthPostConfirmFn.Arn
 
   DatabaseStack:
     Type: AWS::CloudFormation::Stack
@@ -576,14 +577,6 @@ Resources:
         Sourcemap: false
         EntryPoints: [lambdas/display-get-carousel/index.js]
 
-  # ── Cognito PostConfirmation trigger ─────────────────────────────────────────
-
-  CognitoPostConfirmTrigger:
-    Type: AWS::Cognito::UserPoolLambdaConfig
-    Properties:
-      UserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
-      LambdaConfig:
-        PostConfirmation: !GetAtt AuthPostConfirmFn.Arn
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 
