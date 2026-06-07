@@ -58,6 +58,52 @@ Resources:
       Parameters:
         Environment: !Ref Environment
 
+  # ── Media S3 Bucket ───────────────────────────────────────────────────────────
+  # Defined here (not in StorageStack) so SAM can wire S3 → Lambda notifications.
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "ammas-media-${AWS::AccountId}-${Environment}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [PUT]
+            AllowedOrigins: ['*']
+            AllowedHeaders: ['*', 'Content-Type']
+            MaxAge: 300
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${MediaBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub
+                  - "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CdnId}"
+                  - CdnId: !GetAtt StorageStack.Outputs.MediaCdnId
+
   # ── Shared HTTP API ──────────────────────────────────────────────────────────
 
   Api:
@@ -449,7 +495,7 @@ Resources:
         S3Jpg:
           Type: S3
           Properties:
-            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Bucket: !Ref MediaBucket
             Events: s3:ObjectCreated:*
             Filter:
               S3Key:
@@ -459,7 +505,7 @@ Resources:
         S3Jpeg:
           Type: S3
           Properties:
-            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Bucket: !Ref MediaBucket
             Events: s3:ObjectCreated:*
             Filter:
               S3Key:
@@ -469,7 +515,7 @@ Resources:
         S3Png:
           Type: S3
           Properties:
-            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Bucket: !Ref MediaBucket
             Events: s3:ObjectCreated:*
             Filter:
               S3Key:
@@ -479,7 +525,7 @@ Resources:
         S3Webp:
           Type: S3
           Properties:
-            Bucket: !GetAtt StorageStack.Outputs.MediaBucketName
+            Bucket: !Ref MediaBucket
             Events: s3:ObjectCreated:*
             Filter:
               S3Key:
