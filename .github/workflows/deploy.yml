@@ -58,6 +58,9 @@ jobs:
           echo "env_name=$ENV" >> $GITHUB_OUTPUT
           echo "stack_name=ammas-banner-$ENV" >> $GITHUB_OUTPUT
 
+      - name: Install esbuild
+        run: npm install -g esbuild
+
       - name: SAM build
         run: sam build
 
